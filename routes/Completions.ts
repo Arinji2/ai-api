@@ -9,7 +9,7 @@ const currentDay = new Date().getDay();
 let requestCount = 0;
 
 completions.post("/", async (c) => {
-  if (requestCount >= 2) {
+  if (requestCount >= 400) {
     c.status(429);
     return c.json({
       message:

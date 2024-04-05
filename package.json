@@ -3,7 +3,9 @@
   "module": "index.ts",
   "type": "module",
   "scripts": {
-    "dev": "bun --watch index.ts"
+    "dev": "bun --watch index.ts",
+    "build": "docker build --pull -t arinji/ai-api .",
+    "push": "docker push arinji/ai-api"
   },
   "devDependencies": {
     "@types/bun": "latest"

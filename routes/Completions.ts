@@ -17,6 +17,7 @@ completions.post("/", async (c) => {
     });
   }
   const body = await c.req.json();
+  console.log(c.req.header("AUTHORIZATION"));
 
   if (c.req.header("AUTHORIZATION") !== process.env.ACCESS_KEY) {
     c.status(401);
@@ -59,7 +60,7 @@ completions.post("/", async (c) => {
 
   const endTime = Date.now();
 
-  if (endTime - currentTime < 12000) {
+  if (c.req.header("SPEED") !== "FAST" && endTime - currentTime < 12000) {
     await new Promise((resolve) =>
       setTimeout(resolve, 12000 - (endTime - currentTime))
     );

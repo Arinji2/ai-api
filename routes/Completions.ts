@@ -1,12 +1,64 @@
 import { Hono } from "hono";
+import { Resend } from "resend";
 import { CompletionsRequestSchema } from "../schemas";
 import type { CompletionsRequestType } from "../types";
 
 const completions = new Hono();
-//you can only make 500 requests per day
 
 const currentDay = new Date().getDay();
-let requestCount = 0;
+
+async function CheckRequests(from: string) {
+  if (currentDay !== new Date().getDay()) {
+    requestCount = 1;
+
+    await Bun.write(
+      "routes/requests.json",
+      JSON.stringify({
+        requests: requestCount,
+        [from]: 1,
+      })
+    );
+  } else {
+    requestCount++;
+
+    const requests = (await Bun.file("routes/requests.json").json()) as {
+      [key: string]: number;
+    };
+    if (requestCount >= 250) {
+      const resend = new Resend(process.env.EMAIL_KEY);
+
+      await resend.emails.send({
+        from: "ai@mail.arinji.com",
+        to: "arinjaydhar205@gmail.com",
+        subject: "Request Limit Close to Exceeding",
+        text: `Your request limit is close to exceeding, following are the values: \n ${JSON.stringify(
+          requests
+        )}`,
+      });
+    }
+    const requestHost = requests[from] || 0;
+
+    await Bun.write(
+      "routes/requests.json",
+      JSON.stringify({
+        requests: requestCount,
+        [from]: requestHost + 1,
+      })
+    );
+  }
+}
+
+async function InitRequests() {
+  const exists = await Bun.file("routes/requests.json").exists();
+  if (!exists) {
+    await Bun.write("routes/requests.json", JSON.stringify({ requests: 0 }));
+    return 0;
+  }
+
+  const data = await Bun.file("routes/requests.json").json();
+  return data.requests as number;
+}
+let requestCount = await InitRequests();
 
 completions.post("/", async (c) => {
   if (requestCount >= 400) {
@@ -17,9 +69,9 @@ completions.post("/", async (c) => {
     });
   }
   const body = await c.req.json();
-  console.log(c.req.header("AUTHORIZATION"));
+  //get domain of the request
 
-  if (c.req.header("AUTHORIZATION") !== process.env.ACCESS_KEY) {
+  if (c.req.header("AUTHORIZATION") != process.env.ACCESS_KEY) {
     c.status(401);
     return c.json({
       message: "Unauthorized",
@@ -66,11 +118,7 @@ completions.post("/", async (c) => {
     );
   }
 
-  if (currentDay !== new Date().getDay()) {
-    requestCount = 0;
-  }
-
-  requestCount++;
+  CheckRequests(c.req.header("FROM") as string);
 
   return c.json({
     message: response.choices[0].message,

@@ -23,8 +23,8 @@ COPY . .
 
 # copy production dependencies and source code into final image
 FROM base AS release
-COPY --from=install /temp/prod/node_modules node_modules
-COPY --from=prerelease /usr/src/app/ .
+COPY --from=install --chown=bun:bun /temp/prod/node_modules node_modules
+COPY --from=prerelease --chown=bun:bun /usr/src/app/ .
 
 # run the app
 USER bun

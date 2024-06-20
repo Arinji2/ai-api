@@ -4,78 +4,9 @@ import { CompletionsRequestSchema } from "../schemas";
 import type { CompletionsRequestType } from "../types";
 
 const completions = new Hono();
-
-async function CheckRequests(from: string) {
-  if (requestDate !== new Date().getDay()) {
-    requestCount = 1;
-
-    await Bun.write(
-      "routes/requests.json",
-      JSON.stringify({
-        requests: requestCount,
-        [from]: 1,
-        date: new Date().getDay(),
-      })
-    );
-  } else {
-    requestCount++;
-
-    const requests = (await Bun.file("routes/requests.json").json()) as {
-      [key: string]: number;
-    };
-    if (requestCount >= 250) {
-      const resend = new Resend(process.env.EMAIL_KEY);
-
-      await resend.emails.send({
-        from: "ai@mail.arinji.com",
-        to: "arinjaydhar205@gmail.com",
-        subject: "Request Limit Close to Exceeding",
-        text: `Your request limit is close to exceeding, following are the values: \n ${JSON.stringify(
-          requests
-        )}`,
-      });
-    }
-    const requestHost = requests[from] || 0;
-
-    await Bun.write(
-      "routes/requests.json",
-      JSON.stringify({
-        requests: requestCount,
-        [from]: requestHost + 1,
-      })
-    );
-  }
-}
-
-async function InitRequests() {
-  const exists = await Bun.file("routes/requests.json").exists();
-  if (!exists) {
-    await Bun.write(
-      "routes/requests.json",
-      JSON.stringify({ requests: 0, date: new Date().getDay() })
-    );
-    return {
-      requestCount: 0,
-      requestDate: new Date().getDay(),
-    };
-  }
-
-  const data = await Bun.file("routes/requests.json").json();
-  return {
-    requestCount: data.requests,
-    requestDate: data.date,
-  };
-}
-let { requestCount, requestDate } = await InitRequests();
+const resend = new Resend(process.env.EMAIL_KEY);
 
 completions.post("/", async (c) => {
-  if (requestCount >= 400) {
-    c.status(429);
-    return c.json({
-      message:
-        "Too many requests, please wait for day end to make more requests.",
-    });
-  }
   const body = await c.req.json();
   //get domain of the request
 
@@ -111,12 +42,30 @@ completions.post("/", async (c) => {
       Authorization: `Bearer ${process.env.API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: `{"model":"gpt-3.5-turbo","messages":${JSON.stringify(completions)}}`,
+    body: `{"model":"gpt-3.5-turbo-0125","messages":${JSON.stringify(
+      completions
+    )}, "temperature": 1}`,
   };
 
-  const response = await (
-    await fetch("https://api.shuttleai.app/v1/chat/completions", options)
-  ).json();
+  const response = await fetch(
+    "https://api.shuttleai.app/v1/chat/completions",
+    options
+  );
+
+  if (response.status === 429) {
+    c.status(429);
+    await resend.emails.send({
+      from: "ai@mail.arinji.com",
+      to: "arinjaydhar205@gmail.com",
+      subject: "Daily Request Limit Exceeded",
+      text: `Request Limit Exceeded for the completions route. Current Time: ${new Date().toLocaleString()}`,
+    });
+    return c.json({
+      message: "Rate Limit Exceeded",
+    });
+  }
+
+  const messages = await response.json();
 
   const endTime = Date.now();
 
@@ -126,10 +75,8 @@ completions.post("/", async (c) => {
     );
   }
 
-  CheckRequests(c.req.header("FROM") as string);
-
   return c.json({
-    message: response.choices[0].message,
+    message: messages.choices[0].message,
   });
 });
 

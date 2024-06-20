@@ -52,7 +52,7 @@ completions.post("/", async (c) => {
     options
   );
 
-  if (response.status === 429) {
+  if (response.status === 429 && c.req.header("ALERT") !== "IGNORE") {
     c.status(429);
     await resend.emails.send({
       from: "ai@mail.arinji.com",

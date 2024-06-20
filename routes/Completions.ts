@@ -5,10 +5,8 @@ import type { CompletionsRequestType } from "../types";
 
 const completions = new Hono();
 
-const currentDay = new Date().getDay();
-
 async function CheckRequests(from: string) {
-  if (currentDay !== new Date().getDay()) {
+  if (requestDate !== new Date().getDay()) {
     requestCount = 1;
 
     await Bun.write(
@@ -16,6 +14,7 @@ async function CheckRequests(from: string) {
       JSON.stringify({
         requests: requestCount,
         [from]: 1,
+        date: new Date().getDay(),
       })
     );
   } else {
@@ -51,14 +50,23 @@ async function CheckRequests(from: string) {
 async function InitRequests() {
   const exists = await Bun.file("routes/requests.json").exists();
   if (!exists) {
-    await Bun.write("routes/requests.json", JSON.stringify({ requests: 0 }));
-    return 0;
+    await Bun.write(
+      "routes/requests.json",
+      JSON.stringify({ requests: 0, date: new Date().getDay() })
+    );
+    return {
+      requestCount: 0,
+      requestDate: new Date().getDay(),
+    };
   }
 
   const data = await Bun.file("routes/requests.json").json();
-  return data.requests as number;
+  return {
+    requestCount: data.requests,
+    requestDate: data.date,
+  };
 }
-let requestCount = await InitRequests();
+let { requestCount, requestDate } = await InitRequests();
 
 completions.post("/", async (c) => {
   if (requestCount >= 400) {

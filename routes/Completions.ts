@@ -1,83 +1,90 @@
 import { Hono } from "hono";
 import { Resend } from "resend";
-import { CompletionsRequestSchema } from "../schemas";
-import type { CompletionsRequestType } from "../types";
 
 const completions = new Hono();
 const resend = new Resend(process.env.EMAIL_KEY);
 
 completions.post("/", async (c) => {
-  const body = await c.req.json();
-  //get domain of the request
+  try {
+    let body;
+    try {
+      body = await c.req.json();
+    } catch (error) {
+      c.status(400);
+      return c.json({
+        message: "Bad Request",
+      });
+    }
 
-  if (c.req.header("AUTHORIZATION") != process.env.ACCESS_KEY) {
-    c.status(401);
+    if (c.req.header("AUTHORIZATION") != process.env.ACCESS_KEY) {
+      c.status(401);
+      return c.json({
+        message: "Unauthorized",
+      });
+    }
+
+    if (!Array.isArray(body)) {
+      c.status(400);
+      return c.json({
+        message: "Bad Request",
+      });
+    }
+
+    const currentTime = Date.now();
+
+    const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+    const genAI = new GoogleGenerativeAI(process.env.API_KEY);
+
+    let prompt = "";
+    console.log(body);
+    if (body[0].content) {
+      prompt = body[0].content;
+    } else prompt = body[0];
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    let result = (
+      await model.generateContent(prompt)
+    ).response.text() as string;
+
+    //remove any special characters
+    result = result.replace(/\n/g, " ");
+    result = result.replace(/\*/g, "");
+    result = result.replace(/\//g, "");
+    result = result.replace(/`/g, "");
+    result = result.replace(/~/g, "");
+    result = result.replace(/#/g, "");
+    result = result.replace(/@/g, "");
+    result = result.replace(/\$/g, "");
+    result = result.replace(/\^/g, "");
+    result = result.replace(/\&/g, "");
+    result = result.replace(/\%/g, "");
+    result = result.replace(/\=/g, "");
+    result = result.replace(/\+/g, "");
+    result = result.replace(/\-/g, "");
+    result = result.replace(/\_/g, "");
+    result = result.replace(/\|/g, "");
+    result = result.replace(/\"/g, "");
+
+    //remove any html tags
+    result = result.replace(/<[^>]*>/g, "");
+
+    //remove any markdown formatting
+    result = result.replace(/~~/g, "");
+    result = result.replace(/`/g, "");
+    result = result.replace(/^#+/gm, "");
+
+    result = result.trim();
+
     return c.json({
-      message: "Unauthorized",
+      message: result,
     });
-  }
-
-  if (!Array.isArray(body)) {
-    c.status(400);
+  } catch (error) {
+    c.status(500);
     return c.json({
-      message: "Bad Request",
+      message: "Server Error",
     });
   }
-
-  const currentTime = Date.now();
-
-  const completions = body
-    .map((item: any) => {
-      const parse = CompletionsRequestSchema.safeParse(item);
-      if (!parse.success) {
-        return null;
-      }
-      return item;
-    })
-    .filter((item: any) => item !== null) as CompletionsRequestType[];
-
-  const options = {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: `{"model":"gpt-3.5-turbo-0125","messages":${JSON.stringify(
-      completions
-    )}, "temperature": 1}`,
-  };
-
-  const response = await fetch(
-    "https://api.shuttleai.app/v1/chat/completions",
-    options
-  );
-
-  if (response.status === 429 && c.req.header("ALERT") !== "IGNORE") {
-    c.status(429);
-    await resend.emails.send({
-      from: "ai@mail.arinji.com",
-      to: "arinjaydhar205@gmail.com",
-      subject: "Daily Request Limit Exceeded",
-      text: `Request Limit Exceeded for the completions route. Current Time: ${new Date().toLocaleString()}`,
-    });
-    return c.json({
-      message: "Rate Limit Exceeded",
-    });
-  }
-
-  const messages = await response.json();
-
-  const endTime = Date.now();
-
-  if (c.req.header("SPEED") !== "FAST" && endTime - currentTime < 12000) {
-    await new Promise((resolve) =>
-      setTimeout(resolve, 12000 - (endTime - currentTime))
-    );
-  }
-
-  return c.json({
-    message: messages.choices[0].message,
-  });
 });
 
 export default completions;
